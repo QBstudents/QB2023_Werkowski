@@ -1,6 +1,6 @@
 ---
 title: '5\. Worksheet: Alpha Diversity'
-author: "Student Name; Z620: Quantitative Biodiversity, Indiana University"
+author: "Anna Werkowski"; Z620: Quantitative Biodiversity, Indiana University"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: pdf_document
 geometry: margin = 2.54cm
@@ -36,9 +36,9 @@ In the R code chunk below, please provide the code to:
 4) Load the `vegan` R package (be sure to install first if you haven't already).
 
 ```{r}
-
-
-
+rm(list = ls())
+getwd()
+setwd("~/GitHub/QB2023_Werkowski/2.Worksheets/5.AlphaDiversity")
 
 ```
 
@@ -49,7 +49,9 @@ In the R code chunk below, do the following:
 2) Display the structure of the dataset (if the structure is long, use the `max.level = 0` argument to show the basic information).
 
 ```{r}
-
+data("BCI")
+BCIdata <- BCI
+str(BCIdata, max.level = 0)
 
 ```
 
@@ -69,16 +71,24 @@ In the R code chunk below, do the following:
 
 ```{r}
 
-# S.obs <- function(   ){
-#   rowSums(     ) * 
-#   }
-
+S.obs <- function(x=""){
+rowSums(x >0) * 1
+}
+site1 <- BCIdata[1, ]
+S.obs(site1) #93 species in Site 1
+specnumber(BCIdata) #also showed 93 species in Site 1
+site2 <- BCIdata[2, ]
+site3 <- BCIdata[3, ]
+site4 <- BCIdata[4, ]
+S.obs(site2)
+S.obs(site3)
+S.obs(site4)
 ```
 
 ***Question 1***: Does `specnumber()` from `vegan` return the same value for observed richness in `site1` as our function `S.obs`?
 What is the species richness of the first four sites (i.e., rows) of the BCI matrix?
 
-> ***Answer 1***:
+> ***Answer 1***: Yes, both functions return the same value. The species richness of the first four sites is as follows: Site 1 = 93, Site 2 = 84, Site 3 = 90, Site 4 = 94.
 
 
 
@@ -91,8 +101,10 @@ In the R code chunk below, do the following:
 2. Use that function to calculate coverage for all sites in the BCI matrix.
 
 ```{r}
-
-
+coverage <- function(x = ""){
+  1 - (rowSums(x == 1) / rowSums(x))
+}
+coverage(BCIdata[1:50,])
 ```
   
 ***Question 2***: Answer the following questions about coverage:
@@ -102,13 +114,13 @@ b.  What would we conclude from Good's Coverage if $n_{i}$ equaled *N*?
 c.  What portion of taxa in `site1` was represented by singletons? 
 d.  Make some observations about coverage at the BCI plots.
 
-> ***Answer 2a***:  
+> ***Answer 2a***: Values between 0.0 and 1.0 can be generated.
 
-> ***Answer 2b***:  
+> ***Answer 2b***: If the two values match each other, then we can conclude that the number of singleton species is equal to the total number of individuals in the sample. When put into the equation C = 1 - n1/N, C would be 0 meaning that our sample is composed 100% of singleton species. 
 
-> ***Answer 2c***:  
+> ***Answer 2c***:  7% of the taxa in Site 1 were represented by singletons.
 
-> ***Answer 2d***:  
+> ***Answer 2d***:  The coverage at the BCI plots was composed of mostly doubleton species with the percentage of singleton species ranging between 6% to 13% among the sites.
 
 
 ### Estimated richness
@@ -126,9 +138,9 @@ In the R code chunk below, do the following:
 5. Calculate coverage of that site
 
 ```{r}
-
-
-
+soilbac.t <- as.data.frame(t(soilbac))
+soilbac1 <- soilbac.t[1, ]
+S.obs(soilbac1)
 
 
 
