@@ -1,6 +1,6 @@
 ---
 title: '7\. Worksheet: Diversity Synthesis'
-author: "Student Name; Z620: Quantitative Biodiversity, Indiana University"
+author: "Anna Werkowski; Z620: Quantitative Biodiversity, Indiana University"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: pdf_document
 geometry: margin=2.54cm
@@ -52,6 +52,81 @@ In the end, students will use the site-by-species matrix to:
 
 3. Work with other students in your group to assemble data into a site-by-species matrix on the white board. One person needs to create a .csv or .txt file and share your group's site-by-species matrix with the class using GitHub. Make sure that you include a sample identifier (student name) and what community you sampled from.
 
+```{r}
+getwd()
+setwd("/Users/annawerkowski/Documents/Github/QB2023_Werkowski/2.Worksheets/7.DiversitySynthesis")
+dat <- read.table('~/Documents/Gummies.csv', header = TRUE, sep = ",")
+
+package.list <- c('vegan', 'tidyverse', 'ggplot2', 'dplyr', 'broom')
+for (package in package.list) {
+  if (!require(package, character.only = TRUE, quietly = TRUE)) {
+    install.packages(package)
+  }
+}
+dat <- dat[,-1]
+dat[1:30] = lapply(dat[1:30], FUN = function(y){as.numeric(y)})
+str(dat)
+```
+```{r}
+#input Canan's fix for the spec scores problem
+`add.spec.scores.class` <-
+  function(ordi,comm,method="cor.scores",multi=1,Rscale=F,scaling="1") {
+    ordiscores <- scores(ordi,display="sites")
+    n <- ncol(comm)
+    p <- ncol(ordiscores)
+    specscores <- array(NA,dim=c(n,p))
+    rownames(specscores) <- colnames(comm)
+    colnames(specscores) <- colnames(ordiscores)
+    if (method == "cor.scores") {
+      for (i in 1:n) {
+        for (j in 1:p) {specscores[i,j] <- cor(comm[,i],ordiscores[,j],method="pearson")}
+      }
+    }
+    if (method == "wa.scores") {specscores <- wascores(ordiscores,comm)}
+    if (method == "pcoa.scores") {
+      rownames(ordiscores) <- rownames(comm)
+      eigenv <- ordi$eig
+      accounted <- sum(eigenv)
+      tot <- 2*(accounted/ordi$GOF[2])-(accounted/ordi$GOF[1])
+      eigen.var <- eigenv/(nrow(comm)-1)
+      neg <- length(eigenv[eigenv<0])
+      pos <- length(eigenv[eigenv>0])
+      tot <- tot/(nrow(comm)-1)
+      eigen.percen <- 100*eigen.var/tot
+      eigen.cumpercen <- cumsum(eigen.percen)
+      constant <- ((nrow(comm)-1)*tot)^0.25
+      ordiscores <- ordiscores * (nrow(comm)-1)^-0.5 * tot^-0.5 * constant
+      p1 <- min(p, pos)
+      for (i in 1:n) {
+        for (j in 1:p1) {
+          specscores[i,j] <- cor(comm[,i],ordiscores[,j])*sd(comm[,i])/sd(ordiscores[,j])
+          if(is.na(specscores[i,j])) {specscores[i,j]<-0}
+        }
+      }
+      if (Rscale==T && scaling=="2") {
+        percen <- eigen.var/tot
+        percen <- percen^0.5
+        ordiscores <- sweep(ordiscores,2,percen,"/")   
+        specscores <- sweep(specscores,2,percen,"*")
+      }
+      if (Rscale==F) {
+        specscores <- specscores / constant
+        ordiscores <- ordi$points
+      }        
+      ordi$points <- ordiscores
+      ordi$eig <- eigen.var
+      ordi$eig.percen <- eigen.percen
+      ordi$eig.cumpercen <- eigen.cumpercen
+      ordi$eigen.total <- tot
+      ordi$R.constant <- constant
+      ordi$Rscale <- Rscale
+      ordi$scaling <- scaling
+    }
+    specscores <- specscores * multi    
+    ordi$cproj <- specscores
+    return(ordi)
+  }
+```
 
 ## GROUP BRAINSTORM
 
@@ -72,8 +147,37 @@ In smaller groups, take 15 minutes to brainstorm questions, code, statistical te
 **Answer 1:** Use the space below to generate a rarefaction curve/sample coverage based on the data we collected in class for each community. Make sure to annotate your code using # symbols so others (including instructors) understand what you have done and why you have done it. 
 
 ```{r}
+#create the function for observed richness
+S.obs <- function(x = ""){
+  rowSums(x > 0) * 1
+}
+#generate the Chao2 function
+S.chao2 <- function(site = "", SbyS = ""){
+  SbyS = as.data.frame(SbyS)
+  x = SbyS[site, ]
+  Sbys.pa <- (SbyS > 0) * 1
+  Q1 = sum(colSums(Sbys.pa) == 1)
+  Q2 = sum(colSums(Sbys.pa) == 2)
+  S.chao2 = S.obs(x) + (Q1^2)/(2*Q2)
+  return(S.chao2)
+}
+#calculate rarefaction 
+rare.dat <- S.obs(dat)
+min.N <- min(rowSums(dat))
+S.rarefy <- rarefy(x = dat, sample = min.N, se = TRUE)
+rarecurve(x = dat, step = 20, col = "blue", cex = 0.6, las = 1)
+abline(0,1, col = 'red')
+text(1500, 1500, "1:1", pos = 2, col = 'red')
 ```
 
+```{r}
+#calculate Good's coverage
+coverage <- function(x = ""){
+  1 - (rowSums(x == 1)/rowSums(x))
+}
+#using the Good's coverage function on the gummy data set
+coverage(dat)
+```
 
 ### 2) Alpha diversity
 
@@ -84,15 +188,48 @@ What is the variation among the samples in your group and between the communitie
 **Answer 2a - Analysis:** Use the space below for code that is being used to analyze your data and test your hypotheses on your chosen alpha diversity tool. Make sure to annotate your code using # symbols so others (including instructors) understand what you have done and why you have done it.
 
 ```{r}
+#create a Shannon Diversity function
+ShanH <- function(x = ""){
+  H = 0
+  for (n_i in x) {
+    if (n_i > 0) {
+      p = n_i/sum(x)
+      H = H - p*log(p)
+    }
+  }
+  return(H)
+}
+#calculate the Shannon Diversity of the Gummy data set
+diversity(dat, index = "shannon")
+```
+```{r}
+#calculate Simpson's Diversity
+SimpD <- function(x = ""){
+  D = 0
+  N = sum(x)
+  for (n_i in x) {
+    D = D + (n_i^2)/(N^2)
+  }
+  return(D)
+}
+#express Simpson's diversity as 1/D (d.inv) and 1-D (d.sub)
+d.inv <- 1/SimpD(dat)
+d.sub <- 1 - SimpD(dat)
+#use vegan to estimate Simpson's index
+diversity(dat, "inv")
+diversity(dat, "simp")
 ```
 
 **Answer 2b - Plot:** With your analysis, create one (and only one, although it can have multiple panels) *publication-quality* figure.
 
 ```{r}
+RACresults <- radfit(dat)
+plot.new()
+plot(RACresults, las = 1, cex.lab = 1.4, cex.axis = 1.25)
 ```
 
 **Answer 2c - Interpret results:** Write an informative yet succinct (~5 sentences) caption that creates a "stand-alone" figure. Take a peek at figures and figure captions in a paper published in your favorite journal for inspiration.
-
+> Samples from Community A (represented in this figure as Sites 1-4) were incredibly similar to samples from Community B (represented in this figure as Sites 5-8). Some small differences that can be identified between the samples of the two communities are as follows: samples from Community A had an average maximum abundance level of 5 while the samples from Community B had an average maximum abundance level of 10 or above. Due to their average higher maximum abundance level and their steep gradient, it can be inferred that Community B had a lower evenness than Community A. Community B has higher abundances of higher-ranking species compared to the samples from Community A. 
 
 ### 3) Beta diversity
 
@@ -103,15 +240,161 @@ Can you detect compositional differences between each source community sampled?
 **Answer 3a - Analysis:** Use the space below for code that is being used to analyze your data and test your hypotheses on your chosen beta diversity tool. Make sure to annotate your code using # symbols so others (including instructors) understand what you have done and why you have done it.
 
 ```{r}
+#calculate beta diversity
+beta.w <- function(site.by.species = ""){
+  SbyS.pa <- decostand(site.by.species, method = "pa")
+  S <- ncol(SbyS.pa[, which(colSums(SbyS.pa) > 0)])
+  a.bar <- mean(specnumber(SbyS.pa))
+  b.w <- round(S/a.bar, 3)
+  return(b.w)
+}
+beta.w <- function(site.by.species = "", sitenum1 = "", sitenum2 = "", pairwise = FALSE){
+  if (pairwise == TRUE){
+    if (sitenum1 == "" | sitenum2 == ""){
+      print("Error: please specify sites to compare")
+      return(NA)}
+    site1 = site.by.species[sitenum1,]
+    site2 = site.by.species[sitenum2,]
+    site1 = subset(site1, select = site1 > 0)
+    site2 = subset(site2, select = site2 > 0)
+    gamma = union(colnames(site1), colnames(site2))
+    s = length(gamma)
+    a.bar = mean(c(specnumber(site1), specnumber(site2)))
+    b.w = round(s/a.bar - 1,3)
+    return(b.w)
+  }
+else{
+  SbyS.pa <- decostand(site.by.species, method = "pa")
+  S <- ncol(SbyS.pa[, which(colSums(SbyS.pa) > 0)])
+  a.bar <- mean(specnumber(SbyS.pa))
+  b.w <- round(S/a.bar, 3)
+  return(b.w)
+  }  
+}
+#calculate Jaccard
+gummy.dj <- vegdist(dat, method = "jaccard", binary = TRUE)
+#calculate bray-curtis
+gummy.db <- vegdist(dat, method = "bray")
+#calculate sorenson
+gummy.ds <- vegdist(dat, method = "bray", binary = TRUE)
+#create a square resemblance matrix
+gummy.db <- vegdist(dat, method = "bray", upper = TRUE, diag = TRUE)
+print(gummy.db)
 ```
+```{r}
+#calculate ordination and PCoA
+gummy.pcoa <- cmdscale(gummy.db, eig = TRUE, k = 3)
+explainvar1 <- round(gummy.pcoa$eig[1] / sum(gummy.pcoa$eig), 3) * 100
+explainvar2 <- round(gummy.pcoa$eig[2] / sum(gummy.pcoa$eig), 3) * 100
+explainvar3 <- round(gummy.pcoa$eig[3] / sum(gummy.pcoa$eig), 3) * 100
+sum.eig <- sum(explainvar1, explainvar2, explainvar3)
+
+#define plot parameters & initiate plot
+par(mar = c(5,5,1,2) + 0.1)
+plot(gummy.pcoa$points[1:4, ], gummy.pcoa$points[5:8, ], 
+     ylim = c(-0.5, 0.5), xlim = c(-0.5, 0.5),
+     xlab = paste("PCoA 1 (", explainvar1, "%)", sep = ""), 
+     ylab = paste("PCoA 2 (", explainvar2, "%)", sep = ""),
+     pch=16, cex = 2.0, type = "n", cex.lab = 1.5, cex.axis = 1.2, axes = FALSE)
+
+#add axes
+axis(side = 1, labels = T, lwd.ticks = 2, cex.axis = 1.2, las = 1)
+axis(side = 2, labels = T, lwd.ticks = 2, cex.axis = 1.2, las = 1)
+abline(h = 0, v = 0, lty = 3)
+box(lwd = 2)
+
+#add points and labels
+points(gummy.pcoa$points[1:4, ], gummy.pcoa$points[5:8, ],
+       pch = 19, cex = 3, bg = "gray", col = "gray")
+text(gummy.pcoa$points[1:4, ], gummy.pcoa$points[5:8, ],
+     labels = row.names(gummy.pcoa$points))
+
+#calculate the relative abundances of each species at each site
+gummyREL <- dat
+  for (i in 1:nrow(dat)){
+    gummyREL[i, ] = dat[i, ] / sum(dat[i, ])
+  }
+#calculate and add species scores
+gummy.pcoa <- add.spec.scores.class(gummy.pcoa, gummyREL, method = "pcoa.scores")
+text(gummy.pcoa$cproj[1:4, ], gummy.pcoa$cproj[5:8, ],
+     labels = row.names(gummy.pcoa$cproj), col = "black")
+spe.corr <- add.spec.scores.class(gummy.pcoa, gummyREL, method = "corr.scores")$cproj
+corrcut <- 0.5
+imp.spp <- spe.corr[abs(spe.corr[1,]) >= corrcut | abs(spe.corr[2,]) >= corrcut, ]
+
+#permutation test for species abundance across axes
+fit <-  envfit(gummy.pcoa, gummyREL, perm = 999)
+```
+
+
+```{r}
+
+```
+
+> I really struggled with the PCoA plot and tried to tweak it multiple times. I am unsure as to whether it is correct or not. I tried to follow along with the original handout but I didn't know how to change the variables to reflect this new, different data set.
+
+```{r}
+#calculate PERMANOVA
+#create 'factors' vector
+gummyquality <- c(rep("A", 4), rep("B", 4))
+#run PERMANOVA with adonis function
+adonis2(dat ~ gummyquality, method = "bray", permutations = 999)
+```
+**Question 3a Answer** Generate a hypothesis around your chosen analysis and test your hypothesis. Interpret your findings.Can you detect compositional differences between each source community sampled?
+> My hypothesis is that there are compositional differences between the two communities sampled. To test this hypothesis, I generated a PCoA plot and conducted a PERMANOVA analysis. The PERMANOVA analysis produced a P-value of 0.026* indicating a relatively significant difference between samples from Community A and Community B. This was further supported by the PCoA plot, where PCoA Axis 1 explained 41.3% of the variance while PCoA Axis 2 only explained 20.2% of the variance. I would say that you could infer compositional differences between the communities sampled but I would need more plot refining to be more confident.
 
 **Answer 3b - Plot:** With your analysis, create one (and only one, although it can have multiple panels) *publication-quality* figure.  
 
 ```{r}
+#perform dbrda
+#dbrda was revised multiple times because the mod0 and mod1 portions that included the OrdiR2Step function would not work. In order to present something, I removed that part of the code and ran a plain dbrda analysis. 
+
+gummy.dbrda <- dbrda(gummy.db ~ ., as.data.frame(dat))
+ordiplot(gummy.dbrda)
+gummy.dbrda$call
+gummy.dbrda$anova
+ordiplot(gummy.dbrda)
+permutest(gummy.dbrda, permutations = 999)
+envfit(gummy.dbrda, dat[,c(4,6,7)], perm = 999)
+
+#calculate explained variation
+dbrda.explainvar1 <- round(gummy.dbrda$CCA$eig[1] / sum(c(gummy.dbrda$CCA$eig, gummy.dbrda$CA$eig)), 3) * 100
+dbrda.explainvar2 <- round(gummy.dbrda$CCA$eig[2] / sum(c(gummy.dbrda$CCA$eig, gummy.dbrda$CA$eig)), 3) * 100
+
+#plot ordination for selected model
+#define plot parameters
+par(mar = c(5,5,4,4) + 0.1)
+#initiate plot 
+plot(scores(gummy.dbrda, display = "wa"), xlim = c(-1.3, 1.1), 
+     ylim = c(-1.1, 2.7), xlab = paste("dbRDA 1 (", dbrda.explainvar1, "%)", 
+     sep = ""), ylab = paste("dbRDA 2 (", dbrda.explainvar2, "%)", sep = ""),
+     pch = 16, cex = 2.0, type = "n", cex.lab = 1.5,
+     cex.axis = 1.2, axes = FALSE)
+#add axes
+axis(side = 1, labels = T, lwd.ticks = 2, cex.axis = 1.2, las = 1)
+axis(side = 2, labels = T, lwd.ticks = 2, cex.axis = 1.2, las = 1)
+abline(h=0, v=0, lty=3)
+box(lwd=2)
+#add points and labels
+points(scores(gummy.dbrda, display = "wa"),
+       pch = 19, cex = 3, bg = "gray", col = "gray")
+text(scores(gummy.dbrda, display = "wa"),
+     labels = row.names(scores(gummy.dbrda, display = "wa")))
+#add vectors
+vectors <- scores(gummy.dbrda, display = "bp")
+arrows(0,0, vectors[,1], vectors[,2],
+       lwd = 2, lty = 1, length = 0.2, col = "red")
+text(vectors[,1], vectors[,2], pos = 3,
+     labels = row.names(vectors))
+axis(side = 3, lwd.ticks = 2, cex.axis = 1.2, las = 1, col = "red", lwd = 2.2,
+     at = pretty(range(vectors[,1])) * 2, labels = pretty(range(vectors[,1])))
+axis(side = 4, lwd.ticks = 2, cex.axis = 1.2, las = 1, col = "red", lwd = 2.2, 
+     at = pretty(range(vectors[,2])) * 2, labels = pretty(range(vectors[,2])))
 ```
 
 **Answer 3c - Interpret results:** Write an informative yet succinct (~5 sentences) caption that creates a "stand-alone" figure. Take a peek at figures and figure captions in a paper published in your favorite journal for inspiration.
-
+> CAVEAT: I am still very unsure about how to interpret these figures. If we could go over how to interpret this in class it would be highly appreciated!
+> Most of the variance from the analysis was explained by dbRDA 1 (41.3%) while only 20.2% of the variance was explained by dbRDA 2. Many of the points fell to the right side of the vertical axis at zero. There seemed to be a distinct separation between the left and right sides of the figure, as shown by the red arrows.
 
 ## SUBMITTING YOUR ASSIGNMENT
 Use Knitr to create a PDF of your completed 7.DiversitySynthesis_Worksheet.Rmd document, push it to GitHub, and create a pull request.
